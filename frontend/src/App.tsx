@@ -8,14 +8,24 @@ import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn-codes.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css";
+import Overlays from "diagram-js/lib/features/overlays/Overlays";
 import "./App.css";
+
+interface BpmnEvent {
+  element?: any;
+  context?: {
+    shape?: any;
+  };
+}
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [modeler, setModeler] = useState<Modeler | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
-  // const [isLocked, setIsLocked] = useState(false);
+  // const [lockedElements, setLockedElements] = useState<Map<string, string>>(new Map());
   const [ignoringNextChange, setIgnoringNextChange] = useState(false);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [userList, setUserList] = useState<string[]>([]);
 
   // Create modeler on mount
   useEffect(() => {
@@ -36,7 +46,7 @@ function App() {
     return () => m.destroy();
   }, []);
 
-  // Automatic resizing
+  // Handle window resize for canvas
   useEffect(() => {
     const handleResize = () => {
       if (modeler) {
@@ -59,14 +69,27 @@ function App() {
       const data = JSON.parse(event.data);
       if (data.type === "update" && modeler) {
         setIgnoringNextChange(true);
-        modeler.importXML(data.xml).then(() => {
-          const canvas = modeler.get("canvas") as Canvas;
-          canvas.zoom("fit-viewport");
-          canvas.resized();
-        }).catch(err => console.error('Import error:', err));
+        modeler
+          .importXML(data.xml)
+          .then(() => {
+            const canvas = modeler.get("canvas") as Canvas;
+            canvas.zoom("fit-viewport");
+            canvas.resized();
+          })
+          .catch((err) => console.error("Import error:", err));
+      } else if (data.type === "client_id") {
+        setClientId(data.id);
+      } else if (data.type === "user_list") {
+        setUserList(data.users);
       } 
-      // else if (data.type === "lock") {
-      //   setIsLocked(data.locked);
+      // else if (data.type === "element_lock") {
+      //   const newLocked = new Map(lockedElements);
+      //   if (data.locked) {
+      //     newLocked.set(data.element_id, data.user_id);
+      //   } else {
+      //     newLocked.delete(data.element_id);
+      //   }
+      //   setLockedElements(newLocked);
       // }
     };
     websocket.onclose = () => console.log("WebSocket closed");
@@ -107,43 +130,31 @@ function App() {
       canvas.resized();
     });
 
-    // // Lock events for drags (moves), creates (new shapes), edits, and clicks
-    // eventBus.on(
-    //   ["drag.start", "create.start", "directEditing.activate", "element.mousedown"],
-    //   () => {
-    //     if (ws) ws.send(JSON.stringify({ type: "lock", locked: true }));
-    //   }
-    // );
-
-    // eventBus.on(
-    //   [
-    //     "drag.end",
-    //     "drag.cancel",
-    //     "create.end",
-    //     "create.cancel",
-    //     "directEditing.complete",
-    //     "directEditing.cancel",
-    //     "element.mouseup",
-    //   ],
-    //   () => {
-    //     if (ws) ws.send(JSON.stringify({ type: "lock", locked: false }));
-    //   }
-    // );
-
     return () => {
       eventBus.off("commandStack.changed", debouncedSend);
     };
   }, [modeler, ws, ignoringNextChange]);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-screen relative"
-      style={{
-        // ...(isLocked ? { pointerEvents: "none", opacity: 0.7 } : {}),
-        backgroundColor: "white",  // Override any dark themes
-      }}
-    />
+    <div className="flex w-full h-screen">
+      <div
+        ref={containerRef}
+        className="flex-1 relative"
+        style={{
+          backgroundColor: "white",
+        }}
+      />
+      <div className="w-48 bg-gray-100 p-4 overflow-y-auto border-l border-gray-300">
+        <h3 className="text-lg font-bold mb-2">Active Users</h3>
+        <ul>
+          {userList.map((user) => (
+            <li key={user} className={`text-sm ${user === clientId ? 'font-bold' : ''}`}>
+              User {user} {user === clientId && '(You)'}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
