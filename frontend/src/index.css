@@ -1,0 +1,15 @@
+/* Remove or comment out place-items: center; from body */
+body {
+  margin: 0;
+  display: flex;
+  /* place-items: center; */  /* Comment this out */
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Add this to make #root full size */
+#root {
+  width: 100%;
+  height: 100%;
+  background-color: white;  /* Ensures light background for canvas visibility */
+}
