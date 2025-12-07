@@ -43,15 +43,15 @@ class ConnectionManager:
             await websocket.send_text(json.dumps({"type": "lock", "locked": True}))
         await self.broadcast_user_list()
 
-    def disconnect(self, client_id: str):
+    async def disconnect(self, client_id: str):
         websocket = self.active_connections.pop(client_id, None)
         latest_xml = self.current_xml
         if websocket and websocket == self.locking_client:
             self.locking_client = None
             # Unlock others
             for conn in self.active_connections.values():
-                conn.send_text(json.dumps({"type": "lock", "locked": False}))
-        self.broadcast_user_list()  # No await, call async method
+                await conn.send_text(json.dumps({"type": "lock", "locked": False}))
+        await self.broadcast_user_list()
 
     async def broadcast(self, message: str, sender: WebSocket):
         for connection in self.active_connections.values():
