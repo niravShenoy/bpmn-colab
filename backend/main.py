@@ -37,21 +37,35 @@ class ConnectionManager:
         await websocket.accept()
         client_id = str(uuid.uuid4())[:8]  # Short unique ID
         self.active_connections[client_id] = websocket
+        # Store client_id on websocket for easy lookup on disconnect
+        websocket.state.client_id = client_id
+        print(f"Client {client_id} connected. Total clients: {len(self.active_connections)}")
         await websocket.send_text(json.dumps({"type": "client_id", "id": client_id}))
         await websocket.send_text(json.dumps({"type": "update", "xml": self.current_xml}))
         if self.locking_client is not None:
             await websocket.send_text(json.dumps({"type": "lock", "locked": True}))
+        latest_xml = self.current_xml
         await self.broadcast_user_list()
 
     async def disconnect(self, client_id: str):
+        print(f"Disconnecting client {client_id}")
         websocket = self.active_connections.pop(client_id, None)
-        latest_xml = self.current_xml
-        if websocket and websocket == self.locking_client:
+        if not websocket:
+            print(f"Client {client_id} was already removed")
+            return
+        
+        print(f"Client {client_id} removed. Remaining clients: {len(self.active_connections)}")
+        
+        if websocket == self.locking_client:
             self.locking_client = None
+            print(f"Client {client_id} had lock, unlocking others")
             # Unlock others
             for conn in self.active_connections.values():
                 await conn.send_text(json.dumps({"type": "lock", "locked": False}))
+        
+        # Broadcast updated user list to all remaining clients
         await self.broadcast_user_list()
+        print(f"User list broadcasted. Current users: {list(self.active_connections.keys())}")
 
     async def broadcast(self, message: str, sender: WebSocket):
         for connection in self.active_connections.values():
@@ -90,11 +104,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         del manager.locked_elements[element_id]
                         await manager.broadcast(data, websocket)
     except WebSocketDisconnect:
-        # Find client_id by websocket
-        for cid, ws in list(manager.active_connections.items()):
-            if ws == websocket:
-                manager.disconnect(cid)
-                break
+        print(f"WebSocket disconnected: {websocket.client}")
+        # Get client_id from websocket state
+        client_id = getattr(websocket.state, 'client_id', None)
+        if client_id:
+            print(f"Found client_id: {client_id}")
+            await manager.disconnect(client_id)
+        else:
+            print("No client_id found on websocket, searching...")
+            # Fallback: Find client_id by websocket
+            for cid, ws in list(manager.active_connections.items()):
+                if ws == websocket:
+                    await manager.disconnect(cid)
+                    break
 
 if __name__ == "__main__":
     import uvicorn
