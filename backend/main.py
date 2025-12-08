@@ -30,20 +30,16 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, WebSocket] = {}  # client_id: websocket
         self.current_xml = latest_xml
-        self.locking_client: Optional[WebSocket] = None
         self.locked_elements: dict[str, str] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         client_id = str(uuid.uuid4())[:8]  # Short unique ID
         self.active_connections[client_id] = websocket
-        # Store client_id on websocket for easy lookup on disconnect
         websocket.state.client_id = client_id
         print(f"Client {client_id} connected. Total clients: {len(self.active_connections)}")
         await websocket.send_text(json.dumps({"type": "client_id", "id": client_id}))
         await websocket.send_text(json.dumps({"type": "update", "xml": self.current_xml}))
-        if self.locking_client is not None:
-            await websocket.send_text(json.dumps({"type": "lock", "locked": True}))
         latest_xml = self.current_xml
         await self.broadcast_user_list()
 
@@ -53,17 +49,8 @@ class ConnectionManager:
         if not websocket:
             print(f"Client {client_id} was already removed")
             return
-        
+    
         print(f"Client {client_id} removed. Remaining clients: {len(self.active_connections)}")
-        
-        if websocket == self.locking_client:
-            self.locking_client = None
-            print(f"Client {client_id} had lock, unlocking others")
-            # Unlock others
-            for conn in self.active_connections.values():
-                await conn.send_text(json.dumps({"type": "lock", "locked": False}))
-        
-        # Broadcast updated user list to all remaining clients
         await self.broadcast_user_list()
         print(f"User list broadcasted. Current users: {list(self.active_connections.keys())}")
 
@@ -112,7 +99,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await manager.disconnect(client_id)
         else:
             print("No client_id found on websocket, searching...")
-            # Fallback: Find client_id by websocket
             for cid, ws in list(manager.active_connections.items()):
                 if ws == websocket:
                     await manager.disconnect(cid)

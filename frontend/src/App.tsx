@@ -19,6 +19,7 @@ interface BpmnEvent {
 }
 
 function App() {
+  const overlaysRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [modeler, setModeler] = useState<Modeler | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
@@ -27,7 +28,39 @@ function App() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [userList, setUserList] = useState<string[]>([]);
 
-  // Create modeler on mount
+  // Add a lock overlay bubble
+  const addLockOverlay = (elementId: string, color: string) => {
+    if (!overlaysRef.current) return;
+
+    overlaysRef.current.add(elementId, {
+      position: { top: -8, right: -8 },
+      html: `
+      <div style="
+        background: ${color};
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        color:white;
+        font-size:12px;
+        font-weight:bold;
+        box-shadow:0 0 4px rgba(0,0,0,0.3);
+      ">
+        🔒
+      </div>
+    `,
+    });
+  };
+
+  // Remove all overlays for an element
+  const removeLockOverlay = (elementId: string) => {
+    if (!overlaysRef.current) return;
+    overlaysRef.current.remove({ element: elementId });
+  };
+
+  // Create modeler on page load
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -39,6 +72,7 @@ function App() {
         const canvas = m.get("canvas") as Canvas;
         canvas.zoom("fit-viewport");
         canvas.resized();
+        overlaysRef.current = m.get("overlays");
         setModeler(m);
       })
       .catch((err) => console.error("Creation error:", err));
@@ -46,7 +80,7 @@ function App() {
     return () => m.destroy();
   }, []);
 
-  // Handle window resize for canvas
+  // Window resize for canvas
   useEffect(() => {
     const handleResize = () => {
       if (modeler) {
@@ -59,7 +93,7 @@ function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, [modeler]);
 
-  // Create WebSocket once modeler is ready
+  // Create WebSocket when modeler is ready
   useEffect(() => {
     if (!modeler) return;
 
@@ -81,16 +115,17 @@ function App() {
         setClientId(data.id);
       } else if (data.type === "user_list") {
         setUserList(data.users);
+      } else if (data.type === "element_lock") {
+        const { element_id, user_id, locked } = data;
+
+        if (!locked) {
+          removeLockOverlay(element_id);
+          return;
+        }
+        const color = user_id === clientId ? "#22c55e" : "#f97316";
+
+        addLockOverlay(element_id, color);
       }
-      // else if (data.type === "element_lock") {
-      //   const newLocked = new Map(lockedElements);
-      //   if (data.locked) {
-      //     newLocked.set(data.element_id, data.user_id);
-      //   } else {
-      //     newLocked.delete(data.element_id);
-      //   }
-      //   setLockedElements(newLocked);
-      // }
     };
     websocket.onclose = () => alert("WebSocket closed");
     websocket.onerror = (err) => console.error("WebSocket error:", err);
@@ -99,7 +134,7 @@ function App() {
     return () => websocket.close();
   }, [modeler]);
 
-  // Attach event listeners when both modeler and ws are ready
+  // Event listeners when both modeler and ws are ready
   useEffect(() => {
     if (!modeler || !ws) return;
 
@@ -123,11 +158,41 @@ function App() {
     const debouncedSend = debounce(sendUpdate, 300);
     eventBus.on("commandStack.changed", debouncedSend);
 
-    // Auto-fit viewport after changes for visibility
     eventBus.on("commandStack.changed", () => {
       const canvas = modeler.get("canvas") as Canvas;
       canvas.zoom("fit-viewport");
       canvas.resized();
+    });
+
+    eventBus.on("selection.changed", (e: any) => {
+      const element = e.newSelection?.[0];
+
+      if (!ws) return;
+
+      if (element) {
+        ws.send(
+          JSON.stringify({
+            type: "element_lock",
+            element_id: element.id,
+            locked: true,
+            user_id: clientId,
+          })
+        );
+      }
+    });
+
+    eventBus.on("selection.changed", (e: any) => {
+      const prev = e.oldSelection?.[0];
+      if (prev && !e.newSelection?.length) {
+        ws.send(
+          JSON.stringify({
+            type: "element_lock",
+            element_id: prev.id,
+            locked: false,
+            user_id: clientId,
+          })
+        );
+      }
     });
 
     return () => {
