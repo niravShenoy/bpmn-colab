@@ -2,6 +2,10 @@
 
 A collaborative BPMN (Business Process Model and Notation) editor.
 
+## Demo video
+
+[![IMAGE ALT TEXT](https://drive.google.com/file/d/1Vo05zUPMd753FAL1fdxgeTV1oZaHzW62/view?usp=sharing)](https://drive.google.com/file/d/1-3GaXjSTTqsyQnLD-vTGroKfYvQJG3xV/view?usp=sharing)
+
 ## Tech Stack
 
 **Frontend:** React + TypeScript + Vite + bpmn-js  
